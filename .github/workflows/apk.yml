@@ -1,0 +1,52 @@
+name: apk
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: clone URL
+        required: true
+      ref:
+        description: branch or tag (blank = default)
+        required: false
+        default: ''
+      task:
+        description: gradle task
+        required: false
+        default: assembleDebug
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Clone
+        env:
+          REPO: ${{ inputs.repo }}
+          REF: ${{ inputs.ref }}
+        run: git clone --depth 1 ${REF:+-b "$REF"} "$REPO" src
+      - name: Accept SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Build
+        working-directory: src
+        env:
+          TASK: ${{ inputs.task }}
+        run: |
+          set -e
+          d=.
+          if [ ! -e gradlew ] && ! ls settings.gradle* >/dev/null 2>&1; then
+            f="$(find . -maxdepth 3 \( -name gradlew -o -name 'settings.gradle*' \) | head -1)"
+            [ -n "$f" ] && d="$(dirname "$f")"
+          fi
+          cd "$d"
+          if [ ! -f gradlew ]; then gradle wrapper; fi
+          chmod +x gradlew
+          ./gradlew "$TASK" --no-daemon --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: src/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 1
